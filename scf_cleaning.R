@@ -8,23 +8,21 @@
 #
 # Created.date  : 27 Apr 2016
 # Created.by    : Dan Spakowicz
-# Updated.date  : 05 May 2016 
+# Updated.date  :
+# Mon May 16 13:25:25 2016 ------------------------------
+# Mon May 23 23:09:42 2016 ------------------------------
 # Updated.by    : DS
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# load required packages
-#install.packages("maptools")
-#install.packages("ggmap")
-#install.packages("rgdal")
-#install.packages("spatialEco")
-library(maptools)
-library(RColorBrewer)
-library(ggmap)
-library(ggplot2)
-library(rgdal)
-library(plyr)
-library(rgeos)
-library(spatialEco)
+# load/install required packages
+list.of.packages <- c("maptools", "ggmap", "rgdal", "spatialEco", 
+                      "RColorBrewer", "plyr", "rgeos", "ggplot2", 
+                      "raster")
+
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+
 
 # base working directory
 setwd("/Users/danielspakowicz/Box Sync/projects/scfbw/")
@@ -97,10 +95,8 @@ mapImage <- get_map(location = c(lon = -72.9, lat = 41.3),
 
 map2 <- get_googlemap("newhaven")
 
-# map
+# of new haven map
 colors <- brewer.pal(9, "BuGn")
-
-ggmap(map2)
 
 ggmap(mapImage) +
   geom_polygon(aes(x = long,
@@ -126,14 +122,6 @@ ggmap(mapImage) +
 
 
 
-# Figure of posts by year  
-ggplot(data = df)+
-  geom_point(aes(x = lng, y = lat, color = year), size=0) +
-  geom_polygon(data=area.points, 
-               aes(x=long, y = lat),
-               color = "red")+
-  ylim(41.25, 41.35)+
-  xlim(-73, -72.85)
   
 # create a column for number of votes per issue
 
@@ -144,25 +132,65 @@ ggplot(data = df)+
 # Trying with another set of packages
 # http://gis.stackexchange.com/questions/133625/checking-if-points-fall-within-polygon-shapefile
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-data(meuse)
-xy = meuse[c("x", "y")] # retrieve coordinates as data.frame
-class(meuse)
-data(meuse) # reload data.frame
-coordinates(meuse) = c("x", "y") # specify column names
-class(meuse)
-data(meuse) # reload data.frame
-coordinates(meuse) = c(1, 2) # specify column names
-class(meuse)
-data(meuse) # reload data.frame
-coordinates(meuse) = ~x+y # formula
-class(meuse)
-data(meuse) # reload data.frame
-coordinates(meuse) = xy   # as data frame
-class(meuse)
-data(meuse) # reload data.frame
-coordinates(meuse) = as.matrix(xy)   # as matrix
-meuse$log.zn = log(meuse$zinc)
-class(meuse)
-dim(meuse)
+# Check merged crime + neighborhoods + block group dataframe
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# load full set of shape files
+crime_n_bg <- readOGR(dsn = "/Users/danielspakowicz/Desktop/shape_files",
+                      layer = "crime_neigh_bg")
+
+scf_n_bg <- readOGR(dsn = "/Users/danielspakowicz/Desktop/shape_files",
+                      layer = "scf_issues_neighborhood_bg")
+
+
+# create dataframe from shape file
+crime_df <- as.data.frame(crime_n_bg)
+scf_df <- as.data.frame(scf_n_bg)
+
+# write to file
+outloc <- "~/Desktop/shape_files/"
+write.csv(x = crime_df, file = paste(outloc, "nhcrime_neighborhoods_bg.csv", sep = ""))
+write.csv(x = scf_n_bg, file = paste(outloc, "scf_issues_neighborhoods_bg.csv", sep = ""))
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Aggregate scf posts by neighborhood and year
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+scf_df <- read.csv(file = "raw_data/scf_data/scf_issues_neighborhoods_bg.csv")
+scf_df$created_at <- as.POSIXct(scf_df$created_at)
+scf_df$year <- strftime(scf_df$created_at, format = "%Y")
+
+scf_ag <- aggregate(scf_df, by=list(scf_df$name, scf_df$year), FUN=length)
+colnames(scf_ag)[1:3] <- c("Neighborhood", "Year", "Num.Posts")
+
+ggplot(scf_ag, aes(x = Year, y = Num.Posts))+
+  geom_line(aes(group=Neighborhood, color = Neighborhood))+
+  labs(x = "Year",
+       y = "Number of Posts",
+       title = "SeeClickFix Posts in each Neighborhood by Year")+
+  ggsave("scf_neigh_year_line.pdf", path = figout)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Aggregate crime reports by neighborhood and year
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+crime_df <- read.csv(file = "raw_data/crime_data/nhcrime_neighborhoods_bg.csv")
+#crime_df$rpt_date <- as.POSIXct(crime_df$rpt_date, format="%YYYY)
+crime_df$year <- gsub(pattern = "^(\\d{4}).*$", "\\1", crime_df$rpt_date)
+
+crime_ag <- aggregate(crime_df, by=list(crime_df$name, crime_df$year), FUN=length)
+colnames(crime_ag)[1:3] <- c("Neighborhood", "Year", "Num.Crimes")
+
+ggplot(crime_ag, aes(x = Year, y = Num.Crimes))+
+  geom_line(aes(group=Neighborhood, color = Neighborhood))+
+  labs(x = "Year",
+       y = "Number of Recorded Crimes",
+       title = "Crimes in each Neighborhood by Year")+
+  ggsave("crime_neigh_year_line.pdf", path = figout)
