@@ -16,7 +16,8 @@
 # load/install required packages
 list.of.packages <- c("maptools", "ggmap", "rgdal", "spatialEco", 
                       "RColorBrewer", "plyr", "rgeos", "ggplot2", 
-                      "raster", "sp", "nlme", "xtable", "plyr")
+                      "raster", "sp", "nlme", "xtable", "plyr",
+                      "reshape2")
 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
@@ -97,6 +98,8 @@ crime_df$year <- gsub(pattern = "^(\\d{4}).*$", "\\1", crime_df$rpt_date)
 
 crime_ag <- aggregate(crime_df, by=list(crime_df$name, crime_df$year), FUN=length)
 colnames(crime_ag)[1:3] <- c("Neighborhood", "Year", "Num.Crimes")
+crime_ag_neigh <- aggregate(crime_df, by=list(crime_df$name), FUN=length)
+crime_ag_neigh <- crime_ag_neigh[,1:2]
 
 # sanity check 
 nrow(crime_df) == sum(crime_ag$Num.Crimes)
@@ -151,7 +154,7 @@ anova(lm1, lm2)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# SCF time to resolution by Neighborhood
+# SCF Percent Acknowledged by Neighborhood
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -168,14 +171,214 @@ colnames(issuesOfInterest) <- c("Neighborhood", "Issue.Title")
 ggplot(issuesOfInterest, aes(x = Neighborhood, y = Issue.Title))+
   geom_bar(stat = "identity")
 
-# what fraction of issues are closed
-table(is.na(scf_df$closed_at) == "TRUE")
+# what fraction of issues are acknowledged by neighborhood
+timing <- data.frame(scf_df$id, scf_df$user_id, scf_df$name, scf_df$created_at, scf_df$acknowledg, scf_df$closed_at, scf_df$reopened_a, scf_df$title)
+names <- names(timing)
+names <- gsub("scf_df.", "", names)
+colnames(timing) <- names
+attach(timing)
 
-table(scf_df$title)
-sidewalks <- scf_df[which(scf_df$title == "Sidewalks and Curb damage"),]
+# create new data frame with F/T for acknowledg
+acknowledged_fraction <- ddply(.data = timing, .variables = c("name"), .fun = summarize,
+  ack_table = table(is.na(acknowledg))
+)
+# add column for casting
+acknowledged_fraction$FT <- NA
+acknowledged_fraction$FT[seq(1, nrow(acknowledged_fraction), by = 2)] = "Ack"
+acknowledged_fraction$FT[seq(2, nrow(acknowledged_fraction), by = 2)] = "NotAck"
 
-scf_df$timeToAckn
-ggplot(data = scf_df, aes(x = name, y = as.numeric(timeToAckn)))+
-  geom_boxplot(aes(group=name))
+# cast back into short form for calculating as a percent
+ack.sh <- dcast(acknowledged_fraction, name ~ FT, value.var = "ack_table", na.rm = T)
 
-table(is.na(scf_df$closed_at))
+ack.sh$total = ack.sh$Ack + ack.sh$NotAck
+ack.sh$Perc.Ack <- ack.sh$Ack/ack.sh$total * 100
+
+ggplot(ack.sh[1:20,], aes(x = name, y = Perc.Ack))+
+  geom_bar(stat = "identity", aes(fill = name))+
+  coord_flip()+
+  geom_hline(data = ack.sh, aes(yintercept = mean(Perc.Ack)), 
+             linetype = "dashed")+
+  labs(x = "",
+       y = "Percent Acknowledged",
+       title = "The Percent of Issues that are Acknowledged\nfor each Neighborhood")+
+  scale_fill_discrete(guide=F)
+  ggsave(filename = "percent_acknowledged_byNeighborhood.pdf",
+         path = figout, width = 6, height = 8)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# SCF Number Acknowledged, Closed, Reopened
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+length(which(!is.na(scf_df$id)))
+length(which(!is.na(scf_df$acknowledg)))
+
+tab <- data.frame(apply(timing[4:7], 2, function(x) {length(which(!is.na(x)))}))
+colnames(tab) <- "num"
+tab$event <- row.names(tab)
+tab$event <- factor(tab$event, levels = c("created_at","acknowledg", "closed_at", "reopened_a"))
+
+ggplot(tab, aes(x= event, y = num)) +
+  geom_bar(stat = "identity", aes(fill = event)) +
+  labs(x = "",
+       y = "Count",
+       title = "The Number of Issses and Follow-up Events")+
+  ggsave("num_issues_ack_closed_reopened.pdf", path = figout, width = 6, height = 8)
+  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Time to Acknowledgment
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# durations
+timing$timeToAckn <- difftime(timing$acknowledg, timing$created_at, units = c("days"))
+timing$timeToClosed <- difftime(timing$closed_at, timing$created_at, units=c("days"))
+
+timing <- timing[!is.na(timing$name),]
+
+ggplot(timing, aes(x=name, y = timeToAckn))+
+  geom_boxplot(aes(group=name, color = name))+
+  coord_flip()+
+  theme(legend.position = "none")+
+  labs(x = "",
+       y = "Time to Acknowledgement (days)",
+       title = "Time to Issue Acknowledgment")+
+  ggsave("time_to_acknowledgement.pdf", path = figout, width = 6, height = 8)
+
+# Just plot the median values of time to Acknowlegement
+acknowledged_summary <- ddply(.data = timing, .variables = c("name"), .fun = summarise,
+                               median = median(timeToAckn, na.rm=T),
+                               mean = mean(timeToAckn, na.rm=T),
+                               sd = sd(timeToAckn, na.rm = T))
+
+ggplot(acknowledged_summary, aes(x=name, y = median))+
+  geom_bar(stat = "identity",
+           aes(group=name, color = name))+
+  coord_flip()+
+  labs(x = "",
+       y = "Days",
+       title = "Median time to Issue Acknowlegement")+
+  theme(legend.position = "none")+
+  ggsave("median_time_to_acknowledgement.pdf", path = figout, width = 6, height = 8)
+
+# compare median acknowlegeagainst time to crime
+ack_crime <- merge(acknowledged_summary, crime_ag_neigh, by.x = "name", by.y = "Group.1", all=T)
+
+ggplot(ack_crime, aes(x=median, y = X, label = name))+
+  geom_text() +
+  stat_smooth(method="lm")+
+  labs(x = "Median Time to Issue Acknowledgment (Days)",
+       y = "Number of Crimes",
+       title = "Crimes and Time to Issue Acknowledgement")+
+  ggsave("crime_v_acknowledgement.pdf", path = figout, width = 6, height = 8)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Time to Closure
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Box plot of time to closure by neighborhood
+ggplot(timing, aes(x=name, y = timeToClosed))+
+  geom_boxplot(aes(group=name, color = name))+
+  coord_flip()+
+  theme(legend.position = "none")+
+  labs(x = "",
+       y = "Days",
+       title = "Time to Issue Closure")+
+  ggsave("time_to_closure.pdf", path = figout, width = 6, height = 8)
+
+
+# Get summary stats for each neighborhood
+closed_summary <- ddply(.data = timing, .variables = c("name"), .fun = summarise,
+                              median = median(timeToClosed, na.rm=T),
+                              mean = mean(timeToClosed, na.rm=T),
+                              sd = sd(timeToClosed, na.rm = T))
+
+
+# barplot of the median time to closure
+ggplot(closed_summary, aes(x=name, y = median))+
+  geom_bar(stat = "identity",
+           aes(group=name, color = name))+
+  coord_flip()+
+  labs(x = "",
+       y = "Days",
+       title = "Median time to Issue Closure")+
+  theme(legend.position = "none")+
+  ggsave("median_time_to_closure.pdf", path = figout, width = 6, height = 8)
+
+# merge with # of crimes
+clos_crime <- merge(closed_summary, crime_ag_neigh, by.x = "name", by.y = "Group.1", all=T)
+
+# scatterplot of the number of crimes and the time to closure
+ggplot(clos_crime, aes(x=median, y = X, label = name))+
+  geom_text() +
+  stat_smooth(method="lm")+
+  labs(x = "Median Time to Issue Closure (Days)",
+       y = "Number of Crimes",
+       title = "The relationship between the number of crimes by neighborhood\nand the median time to SeeClickFix issue closure") +
+  ggsave("crime_v_closure.pdf", path = figout, width = 6, height = 8)
+
+lm3 <- lm(formula = X~median, data = ack_crime)
+lm4 <- lm(formula = X~median, data = clos_crime)
+summary(lm3)
+summary(lm4)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Time to Closure for just sidewalk related issues
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# subset to just the sidewalks
+sidewalks <- timing[which(timing$title == "Sidewalks and Curb damage"),]
+
+
+# Box plot of time to closure by neighborhood
+ggplot(sidewalks, aes(x=name, y = timeToClosed))+
+  geom_boxplot(aes(group=name, color = name))+
+  coord_flip()+
+  theme(legend.position = "none")+
+  labs(x = "",
+       y = "Days",
+       title = "Time to Issue Closure")+
+  ggsave("sidewalks_time_to_closure.pdf", path = figout, width = 6, height = 8)
+
+
+# Get summary stats for each neighborhood
+sidewalks_closed_summary <- ddply(.data = sidewalks, .variables = c("name"), .fun = summarise,
+                        median = median(timeToClosed, na.rm=T),
+                        mean = mean(timeToClosed, na.rm=T),
+                        sd = sd(timeToClosed, na.rm = T))
+
+# barplot of the median time to closure
+ggplot(sidewalks_closed_summary, aes(x=name, y = median))+
+  geom_bar(stat = "identity",
+           aes(group=name, color = name))+
+  coord_flip()+
+  labs(x = "",
+       y = "Days",
+       title = "Median time to Issue Closure")+
+  theme(legend.position = "none")+
+  ggsave("sidewalks_median_time_to_closure.pdf", path = figout, width = 6, height = 8)
+
+# merge with # of crimes
+side_clos_crime <- merge(sidewalks_closed_summary, crime_ag_neigh, by.x = "name", by.y = "Group.1", all=T)
+
+# scatterplot of the number of crimes and the time to closure
+ggplot(side_clos_crime, aes(x=median, y = X, label = name))+
+  geom_text() +
+  stat_smooth(method="lm")+
+  labs(x = "Median Time to Issue Closure (Days)",
+       y = "Number of Crimes",
+       title = "Does the amount of crime in a neighborhood correlate\nwith the time to resolve sidewalk complaints?") +
+  ggsave("sidewalks_crime_v_closure.pdf", path = figout, width = 6, height = 8)
+
+# Slope is not significant
+lm5 <- lm(formula = X~median, data = side_clos_crime)
+summary(lm5)
+
