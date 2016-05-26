@@ -71,10 +71,9 @@ colnames(scf_ag)[1:3] <- c("Neighborhood", "Year", "Num.Posts")
 # sanity check
 nrow(scf_df) == sum(scf_ag$Num.Posts)
 nrow(scf_df) == sum(scf_ag$id)
-sum(scf_ag$Num.Posts)
-sum(scf_ag$id)
-table(scf_df$id)
 
+
+# Plot of the # of posts in each neighborhood by year
 ggplot(scf_ag, aes(x = Year, y = Num.Posts))+
   geom_line(aes(group=Neighborhood, color = Neighborhood))+
   labs(x = "Year",
@@ -151,25 +150,48 @@ summary(lm2)
 anova(lm1, lm2)
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# SCF issue categories by Neighborhood
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# SCF Percent Acknowledged by Neighborhood
+issuesOfInterest <- count(scf_df, c("name", "title"))
+issuesOfInterest <- issuesOfInterest[!is.na(issuesOfInterest$name),]
+
+# stacked barplot of the issue types per neighborhood
+ggplot(issuesOfInterest, aes(x = name, y = freq, fill=title))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(x = "",
+       y = "Number",
+       fill = "SeeClickFix Issue Category")+
+  ggsave("issue_titles_by_neighborhood.pdf", path = figout, width = 12, height = 8)
+
+# now normalizing all to percent of total
+cast.ioi <- dcast(issuesOfInterest, formula = name~title)
+
+cast.ioi.rS <- rowSums(cast.ioi[2:25], na.rm = T)
+perc.cast.ioi <- cast.ioi / cast.ioi.rS
+perc.cast.ioi$name <- cast.ioi$name
+
+mperc.cast.ioi <- melt(perc.cast.ioi)
+
+# normalized stacked barplot of the issue types per neighborhood
+ggplot(mperc.cast.ioi, aes(x = name, y = value*100, fill=variable))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(x = "",
+       y = "Percent of Issues",
+       fill = "SeeClickFix Issue Category",
+       title = "Categories of SeeClickFix Posts by Neighborhood")+
+  ggsave("issue_titles_by_neighborhood_normalized.pdf", path = figout, width = 12, height = 8)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-scf_df$timeToAckn <- scf_df$acknowledg - scf_df$created_at
+# SCF Percent Acknowledged and Closed by Neighborhood
 
-scf_df$timeToClose <- scf_df$closed_at - scf_df$created_at
-
-closed <- aggregate(scf_df, by = list("name", "closed_at"), FUN = length)
-
-table(is.na(scf_df$closed_at) ~ scf_df$name)
-issuesOfInterest <- ddply(scf_df, ~name, summarize, scf_df$title)
-colnames(issuesOfInterest) <- c("Neighborhood", "Issue.Title")
-
-ggplot(issuesOfInterest, aes(x = Neighborhood, y = Issue.Title))+
-  geom_bar(stat = "identity")
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # what fraction of issues are acknowledged by neighborhood
 timing <- data.frame(scf_df$id, scf_df$user_id, scf_df$name, scf_df$created_at, scf_df$acknowledg, scf_df$closed_at, scf_df$reopened_a, scf_df$title)
@@ -191,19 +213,55 @@ acknowledged_fraction$FT[seq(2, nrow(acknowledged_fraction), by = 2)] = "NotAck"
 ack.sh <- dcast(acknowledged_fraction, name ~ FT, value.var = "ack_table", na.rm = T)
 
 ack.sh$total = ack.sh$Ack + ack.sh$NotAck
-ack.sh$Perc.Ack <- ack.sh$Ack/ack.sh$total * 100
+ack.sh$Percent.Acknowledged <- ack.sh$Ack/ack.sh$total * 100
 
-ggplot(ack.sh[1:20,], aes(x = name, y = Perc.Ack))+
-  geom_bar(stat = "identity", aes(fill = name))+
+ggplot(ack.sh[1:20,], aes(x = name, y = Percent.Acknowledged))+
+  geom_bar(stat = "identity", aes(color = name))+
   coord_flip()+
-  geom_hline(data = ack.sh, aes(yintercept = mean(Perc.Ack)), 
+  geom_hline(data = ack.sh, aes(yintercept = mean(Percent.Acknowledged)), 
              linetype = "dashed")+
   labs(x = "",
        y = "Percent Acknowledged",
        title = "The Percent of Issues that are Acknowledged\nfor each Neighborhood")+
-  scale_fill_discrete(guide=F)
+  theme(legend.position = "none")
   ggsave(filename = "percent_acknowledged_byNeighborhood.pdf",
          path = figout, width = 6, height = 8)
+  
+# now do the same for closures
+
+# create new data frame with F/T for acknowledg
+  closed_fraction <- ddply(.data = timing, .variables = c("name"), .fun = summarize,
+                                 closed_table = table(is.na(closed_at)))
+  # add column for casting
+  closed_fraction$FT <- NA
+  closed_fraction$FT[seq(1, nrow(closed_fraction), by = 2)] = "Closed"
+  closed_fraction$FT[seq(2, nrow(closed_fraction), by = 2)] = "NotClosed"
+  
+  # cast back into short form for calculating as a percent
+  closed.sh <- dcast(closed_fraction, name ~ FT, value.var = "closed_table", na.rm = T)
+  
+  closed.sh$total = closed.sh$Closed + closed.sh$NotClosed
+  closed.sh$Percent.Closed <- closed.sh$Closed/closed.sh$total * 100
+
+ack.closed <- merge(ack.sh, closed.sh, by = "name")
+ack.closed.2 <- ack.closed[1:20,c(1,5,9)]
+ack.closed.2.melt <- melt(ack.closed.2)
+
+ggplot(ack.closed.2.melt, aes(x = name, value, fill=variable))+
+  geom_bar(stat = "identity", position = "dodge")+
+  coord_flip()+
+  geom_hline(data = ack.closed, aes(yintercept = mean(Percent.Acknowledged)), 
+             linetype = "dashed", show.legend = T) +
+  geom_hline(data = ack.closed, aes(yintercept = mean(Percent.Closed), linetype = "Means"), 
+              show.legend = T)+
+  labs(x = "",
+       y = "Percent",
+       title = "The Percent of Issues Acknowledged and Closed\nfor each Neighborhood")+
+  theme(legend.title=element_blank())+
+#   scale_linetype_manual(values = c(mean(Percent.Acknowledged), mean(Percent.Closed)))+
+#   scale_color_manual(values = c("black", "black"))+
+  ggsave(filename = "percent_acknowledged+closed_byNeighborhood.pdf",
+       path = figout, width = 6, height = 8)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
