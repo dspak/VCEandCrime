@@ -17,10 +17,10 @@
 list.of.packages <- c("maptools", "ggmap", "rgdal", "spatialEco", 
                       "RColorBrewer", "plyr", "rgeos", "ggplot2", 
                       "raster", "sp", "nlme", "xtable", "plyr",
-                      "reshape2")
+                      "reshape2", "igraph")
 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
-if(length(new.packages)) install.packages(new.packages)
+if(length(new.packages)) install.packages(new.packages, repos = "http://cran.rstudio.com/")
 lapply(list.of.packages, require, character.only = TRUE)
 
 
@@ -31,18 +31,25 @@ setwd("/Users/danielspakowicz/Box Sync/projects/scfbw/")
 figout <- "/Users/danielspakowicz/Box Sync/projects/scfbw/figures"
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Map of SCF posts by year
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# load issues file
+# load and format issues file
 scf_df <- read.csv(file = "raw_data/scf_data/scf_issues_neighborhoods_bg.csv")
 scf_df$created_at <- as.POSIXct(scf_df$created_at)
 scf_df$acknowledg <- as.POSIXct(scf_df$acknowledg)
 scf_df$closed_at <- as.POSIXct(scf_df$closed_at)
 scf_df$reopened_a <- as.POSIXct(scf_df$reopened_a)
 scf_df$year <- strftime(scf_df$created_at, format = "%Y")
+scf_df$year_month <- strftime(scf_df$created_at, format = "%Y%m")
+
+# load merged issues / comments file
+comments <- read.csv("raw_data/scf_data/nh_scf_issues_comments.csv")
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Map of SCF posts by year
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Figure of posts by year  
 ggplot(data = scf_df)+
@@ -57,16 +64,41 @@ ggplot(data = scf_df)+
        title = "SeeClickFix Issue Locations by Year")+
   ggsave("scf_posts_loc_by_year.pdf", path = figout, width = 12, height = 8)
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Unique users per neighborhood
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Aggregate scf posts by neighborhood and year
+users <- aggregate(x = scf_df, by = list(user_id, name), FUN = length)
+users <- users[,1:3]
+
+# sanity check
+colSums(users[3])
+
+# stacked barplot of 
+ggplot(users, aes(x = Group.2, y = X, fill = factor(Group.1)))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  theme(legend.position="none")+
+  labs(x = "",
+       y = "Number of Posts",
+       title = "Number of Posts by unique users by neighborhood")
+  ggsave("posts_per_user_by_neighborhood.pdf", path = figout, width = 12, height = 8)
+  
+
+  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Aggregate scf posts by neighborhood and year or month
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 scf_ag <- aggregate(scf_df, by=list(scf_df$name, scf_df$year), FUN=length)
 colnames(scf_ag)[1:3] <- c("Neighborhood", "Year", "Num.Posts")
+
+scf_ag_month <- aggregate(scf_df, by=list(scf_df$name, scf_df$year_month), FUN=length)
+colnames(scf_ag_month)[1:3] <- c("Neighborhood", "YearMonth", "Num.Posts")
 
 # sanity check
 nrow(scf_df) == sum(scf_ag$Num.Posts)
@@ -91,14 +123,19 @@ ggplot(scf_ag, aes(x = Year, y = Num.Posts))+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-crime_df <- read.csv(file = "raw_data/crime_data/nh_crime_neigh_bg.csv")
+crime_df <- read.csv(file = "raw_data/crime_data/nh_crime_neigh_bg_gun.csv")
 #crime_df$rpt_date <- as.POSIXct(crime_df$rpt_date, format="%YYYY)
-crime_df$year <- gsub(pattern = "^(\\d{4}).*$", "\\1", crime_df$rpt_date)
+
+# year and month cols were added to the crime data csv
+# crime_df$year <- gsub(pattern = "^(\\d{4}).*$", "\\1", crime_df$rpt_date)
 
 crime_ag <- aggregate(crime_df, by=list(crime_df$name, crime_df$year), FUN=length)
 colnames(crime_ag)[1:3] <- c("Neighborhood", "Year", "Num.Crimes")
 crime_ag_neigh <- aggregate(crime_df, by=list(crime_df$name), FUN=length)
 crime_ag_neigh <- crime_ag_neigh[,1:2]
+
+crime_ag_month <- aggregate(crime_df, by=list(crime_df$name, crime_df$YearMonth), FUN=length)
+colnames(crime_ag_month)[1:3] <- c("Neighborhood", "YearMonth", "Num.Crimes")
 
 # sanity check 
 nrow(crime_df) == sum(crime_ag$Num.Crimes)
@@ -124,8 +161,9 @@ ggplot(crime_ag.12, aes(x = Year, y = Num.Crimes, label = Neighborhood))+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-both <- merge(x = crime_ag.12[,1:3], y = scf_ag[,1:3],
-              by = c("Neighborhood", "Year"), all = T)
+both <- merge(x = crime_ag_month[,1:3], y = scf_ag_month[,1:3],
+              by = c("YearMonth", "Neighborhood"), all = T)
+both <- both[order(both$YearMonth),]
 
 
 lm0 <- lm(Num.Crimes ~ Num.Posts,
@@ -149,6 +187,39 @@ summary(lm2)
 
 anova(lm1, lm2)
 
+lm3 <- lm(Num.Crimes ~ Neighborhood + Num.Posts + YearMonth,
+          data = both)
+summary(lm3)
+
+lm4 <- lm(Num.Crimes ~  Num.Posts,
+          data = both)
+summary(lm4)
+par(mfrow=c(2,2))
+pdf(file = "figures/lm_residuals_crime_v_posts.pdf")
+plot(lm4)
+dev.off()
+
+ggplot(data = both, aes(x = Num.Crimes, y = Num.Posts))+
+  geom_point()+
+  stat_smooth(method = lm)
+
+ggplot(data = both, aes(x = Num.Crimes, y = Num.Posts))+
+  geom_point(aes(color=Neighborhood))+
+  stat_smooth(method = lm)+
+  labs(x="Number of Crimes",
+       y="Number of SeeClickFix Issues",
+       title = "Per Month SeeClickFix Issues and Crime")+
+  ggsave(filename = "scf_v_crime_permonth_scatter_lm.pdf",
+         path = figout, width = 12, height = 8)
+
+ggplot(data = both, aes(x = Num.Crimes, y = Num.Posts, color=Neighborhood))+
+  geom_point()+
+  stat_smooth(method = lm)+
+  labs(x="Number of Crimes",
+       y="Number of SeeClickFix Issues",
+       title = "Per Month SeeClickFix Issues and Crime")+
+  ggsave(filename = "scf_v_crime_permonth_scatter_lmByNeighborhood.pdf",
+         path = figout, width = 12, height = 8)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -440,3 +511,53 @@ ggplot(side_clos_crime, aes(x=median, y = X, label = name))+
 lm5 <- lm(formula = X~median, data = side_clos_crime)
 summary(lm5)
 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Network analysis
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# following http://kateto.net/network-visualization
+# ensure id vars are factors
+comments$user_id.x <- as.factor(comments$user_id.x)
+comments$user_id.y <- as.factor(comments$user_id.y)
+
+# count the interactions (edge file, called links here)
+com.num <- count(df = comments, vars = c("user_id.x","user_id.y"))
+
+# remove NAs
+#com.num.n <- com.num[apply(com.num,2,function(x) !any(is.na(x))),]
+com.num.n <- com.num[!is.na(com.num$user_id.x),]
+links <- com.num.n[!is.na(com.num.n$user_id.y),]
+
+# label the cols like in the edged tutorial implying direction of interaction
+colnames(links) <- c("to", "from", "weight")
+
+# make a user id list (node file)
+nodes <- as.data.frame(as.factor
+                       (c(as.character(edges$to), as.character(edges$from))))
+nodes <- unique(nodes)
+row.names(nodes) <- seq(1,nrow(nodes))
+colnames(nodes) <- "id"
+
+net <- graph.data.frame(links, nodes, directed=T)
+net
+plot(net)
+net <- simplify(net, remove.multiple = F, remove.loops = T)
+plot(net, edge.arrow.size=.1,vertex.label=NA, vertex.size=3,
+     margin(t = c(-10), r = 0.1, b = 0.1, l = 0.1))
+
+
+deg <- degree(net, mode="all")
+V(net)$size <- deg*3
+par(mar=c(,0,0,0))
+pdf(file = "scf_network_zoomout.pdf")
+plot(net, edge.arrow.size=.4,vertex.label=NA, vertex.size=3)
+dev.off()
+
+write.csv(links, "scf_network_edges.csv")
+
+table(links$to)
+net2 <- net
+l <- layout.circle(net2)
+plot(net2, layout=l)
