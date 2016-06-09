@@ -221,6 +221,14 @@ ggplot(data = both, aes(x = Num.Crimes, y = Num.Posts, color=Neighborhood))+
   ggsave(filename = "scf_v_crime_permonth_scatter_lmByNeighborhood.pdf",
          path = figout, width = 12, height = 8)
 
+lm5 <- glm(Num.Crimes ~  Num.Posts,
+          data = both, family = poisson())
+summary(lm5)
+
+pdf(file = "figures/lm5_poisson_residuals_crime_v_posts.pdf")
+par(mfrow=c(2,2))
+plot(lm5)
+dev.off()
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # SCF issue categories by Neighborhood
