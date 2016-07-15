@@ -33,7 +33,7 @@ figout <- "/Users/danielspakowicz/Box Sync/projects/scfbw/figures"
 
 
 # load and format issues file
-scf_df <- read.csv(file = "raw_data/scf_data/scf_issues_neighborhoods_bg.csv")
+scf_df <- read.csv(file = "data/processed/combined//scf_issues_neighborhoods_bg.csv")
 scf_df$created_at <- as.POSIXct(scf_df$created_at)
 scf_df$acknowledg <- as.POSIXct(scf_df$acknowledg)
 scf_df$closed_at <- as.POSIXct(scf_df$closed_at)
@@ -126,19 +126,22 @@ ggplot(scf_ag, aes(x = Year, y = Num.Posts))+
 crime_df <- read.csv(file = "raw_data/crime_data/nh_crime_neigh_bg_gun.csv")
 #crime_df$rpt_date <- as.POSIXct(crime_df$rpt_date, format="%YYYY)
 
+# this step was included to adapt this figure generation to the newest iteration of the script, in which neighborhood names were manually assigned to tracts
+merged <- crime_df
 # year and month cols were added to the crime data csv
 # crime_df$year <- gsub(pattern = "^(\\d{4}).*$", "\\1", crime_df$rpt_date)
 
-crime_ag <- aggregate(crime_df, by=list(crime_df$name, crime_df$year), FUN=length)
+crime_ag <- aggregate(merged, by=list(merged$Manual.Neighborhood, merged$year), FUN=length)
 colnames(crime_ag)[1:3] <- c("Neighborhood", "Year", "Num.Crimes")
 crime_ag_neigh <- aggregate(crime_df, by=list(crime_df$name), FUN=length)
 crime_ag_neigh <- crime_ag_neigh[,1:2]
 
-crime_ag_month <- aggregate(crime_df, by=list(crime_df$name, crime_df$YearMonth), FUN=length)
+crime_ag_month <- aggregate(merged, by=list(merged$Manual.Neighborhood, merged$YearMonth, merged$Total.Population.), FUN=length)
 colnames(crime_ag_month)[1:3] <- c("Neighborhood", "YearMonth", "Num.Crimes")
+crime_ag_month <- crime_ag_month[,1:3]
 
-# sanity check 
-nrow(crime_df) == sum(crime_ag$Num.Crimes)
+# sanity check -- SHOULD BE TRUE
+nrow(crime_df) == sum(crime_ag_month$Num.Crimes)
 
 # exclude 2013 because it lacks Oct-Dec
 crime_ag.12 <- crime_ag[which(crime_ag$Year != 2013),]
@@ -155,16 +158,35 @@ ggplot(crime_ag.12, aes(x = Year, y = Num.Crimes, label = Neighborhood))+
   ggsave("crime_neigh_year_line.pdf", path = figout, width = 12, height = 8)
 
 
+# ALT showing the Manual coding of neighborhoods
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Join crime and scf aggregations for a preliminary Linear Model
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+str(crime_ag_month[,1:3])
+str(scf_ag_month[,1:3])
+crime_ag_month$YearMonth <- as.character(crime_ag_month$YearMonth)
 both <- merge(x = crime_ag_month[,1:3], y = scf_ag_month[,1:3],
               by = c("YearMonth", "Neighborhood"), all = T)
 both <- both[order(both$YearMonth),]
 
+#write.csv(x = both, file = "data/processed/combined/crime_scf_by_month_neighborhood.csv", row.names = F, quote = F)
+
+# histogram of the Num.Posts and Num.Crimes for this file
+ggplot(both)+
+  geom_histogram(aes(x = Num.Crimes, fill = "red"), alpha = 0.3)+
+  geom_histogram(aes(x = Num.Posts, fill = "blue"), alpha = 0.3, show.legend = T)+
+  labs(x = "Number per Month",
+       y = "Count",
+       title = "Distributions of the Number of Crimes and SeeClickFix Posts per Month")+
+  scale_fill_manual("", values = c("red", "blue"), 
+                     labels = c("SeeClickFix Posts", "Crimes"))+
+  ggsave(filename = "hist_crimes_scf_perMonth.pdf", path = figout,
+         width = 10, height = 6)
+
+# Models
 
 lm0 <- lm(Num.Crimes ~ Num.Posts,
           data = both)

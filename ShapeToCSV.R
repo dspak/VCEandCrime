@@ -40,4 +40,4 @@ ShapeToCSV <- function(baseName) {
 }
 
 # call function
-ShapeToCSV(args[1]
+ShapeToCSV(args[1])
