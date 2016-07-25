@@ -1,10 +1,12 @@
 # Interrupted Time Series Analysis
 # Fri Jul 15 15:06:04 2016 ------------------------------
+# Thu Jul 21 15:55:41 2016 ------------------------------
+
 
 # Model building attempt
 
 # load/install required packages
-list.of.packages <- c("Wats", "ggplot2","nlme", "forecast")
+list.of.packages <- c("Wats", "ggplot2","nlme", "forecast", "lmtest")
 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages, repos = "http://cran.rstudio.com/")
@@ -44,6 +46,14 @@ df$postSCF <- (df$YearMonth >= dateSCF)
 # center the date at introduction of SCF
 df$dateSCFctr <- df$YearMonthTime - dateSCF
 
+df$X.1 <- df$X <- NULL
+
+###
+### Clean up and write out this file to distribute
+###
+###
+write.csv(df, file = "data/processed/combined/crime_scf_census_by_mneigh_ym_ITSv2.csv", row.names = F)
+write.csv(df[df$mNeighborhood=="Hill",], file = "data/processed/combined/crime_scf_census_Hill_ym_ITSv2.csv", row.names = F)
 
 # subset to just look at Downtown
 downtown <- subset(df, mNeighborhood == "Downtown")
@@ -52,16 +62,15 @@ downtown <- subset(df, mNeighborhood == "Downtown")
 ggplot(data = downtown, mapping = aes(x = YearMonth, y = Crime.Rate)) +
   geom_line(aes(group=1))
 
-
 # label downtown times as a time series
 downtown$Crime.Rate <- ts(data = downtown$Crime.Rate, )
-str(downtown$Crime.Rate)
+
 
 #########################################################################################################################
 ###########
 ########### Models using generalized least squares
 ###########
-# model
+
 glsFit1 <- gls(model       = Crime.Rate ~ dateSCFctr + postSCF + dateSCFctr:postSCF,
                data        = downtown,
                correlation = corAR1(0.25))
@@ -136,10 +145,15 @@ sink(file = "models/SeeClickFix_Crime_ITS_lme_v2.txt")
 summary(lmeFit3)
 sink()
 
+hist(lmeFit3$residuals)
+lrtest(lmeFit2, lmeFit3)
+??lrtest
+
 ## Create prediction dataset
 pred.lmeFit3 <- predict(lmeFit3)
 plot.pred.lmeFit3 <- data.frame(df$YearMonthTime, df$mNeighborhood, df$postSCF, df$Crime.Rate, as.numeric(pred.lmeFit3))
 
+plot(pred.lmeFit3)
 
 ggplot(data = canadian, mapping = aes(x = DateNumCtr, y = BirthRateMonthly)) +
   layer(geom = "line") +
@@ -158,18 +172,8 @@ ggplot(plot.pred.lmeFit3, aes(x = df.YearMonthTime, y = as.numeric.pred.lmeFit3.
   labs(x="", y="Crime Rate", title="Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nMixed Effects Model")+
   ggsave("lmeFit.CrimeRatevTimebyNeighborhood.pdf", path = figout, width = 8, height = 6)
 
-ggplot(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Downtown",], aes(x = df.YearMonthTime, y = as.numeric.pred.lmeFit3.))+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Downtown",], df.postSCF == 0), color = "red")+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Downtown",], df.postSCF == 1), color = "red")+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Downtown",]), aes(x = df.YearMonthTime, y = df.Crime.Rate))+
-  labs(x="", y="Crime Rate", title="Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nMixed Effects Model\nDowntown")
-  
-ggplot(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Newhallville",], aes(x = df.YearMonthTime, y = as.numeric.pred.lmeFit3.))+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Newhallville",], df.postSCF == 0), color = "red")+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Newhallville",], df.postSCF == 1), color = "red")+
-  geom_line(data = subset(plot.pred.lmeFit3[plot.pred.lmeFit3$df.mNeighborhood == "Newhallville",]), aes(x = df.YearMonthTime, y = df.Crime.Rate))+
-  labs(x="", y="Crime Rate", title="Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nMixed Effects Model\nNewhallville")
 
+# make individual plot for each neighborhood
 
 neigh <- unique(df$mNeighborhood)
 dir.create(paste(figout, "lmeFits",sep =  "/"))
@@ -181,6 +185,76 @@ for (n in 1:length(neigh)) {
     labs(x="", y="Crime Rate", title=paste("Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nMixed Effects Model", neigh[n], sep="\n"))+
     ggsave(filename = paste("lmeFit.CrimeRatevTime", neigh[n], "pdf", sep = "."), path = paste(figout, "lmeFits",sep =  "/"), height = 6, width = 8)
 }
+
+
+# model excluding Long Wharf (exceptionally high crime rate, positive slope post scf)
+lw <- df$mNeighborhood!="LongWharf"
+df.noLW <- df[lw,]
+
+lmeFit4 <- lme(Crime.Rate ~ dateSCFctr + postSCF +
+                 dateSCFctr*postSCF,
+               method = "ML",
+               random = list(~1 + dateSCFctr | mNeighborhood),
+               data = df.noLW)
+sink(file = "models/SeeClickFix_Crime_ITS_lme_v3.txt")
+summary(lmeFit4)
+sink()
+
+# model of just the Hill
+hill <- df[df$mNeighborhood=="Hill",]
+lmeFit5 <- lme(Crime.Rate ~ dateSCFctr + postSCF +
+                 dateSCFctr*postSCF,
+               method = "ML",
+               random = list(~1 + dateSCFctr | mNeighborhood),
+               data = hill)
+sink(file = "models/SeeClickFix_Crime_ITS_lme_v4.txt")
+summary(lmeFit5)
+sink()
+
+# include a correlation matrix
+lmeFit6 <- lme(Crime.Rate ~ dateSCFctr + postSCF +
+                 dateSCFctr*postSCF,
+               method = "ML",
+               random = list(~1 + dateSCFctr | mNeighborhood),
+               correlation = corAR1(0.66),
+               data = df.noLW)
+
+sink("models/SeeClickFix_Crime_ITS_lme_v5.txt")
+summary(lmeFit6)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model that lacks an AR1 correlation structure")
+cat("\n")
+lrtest(lmeFit4, lmeFit6)
+sink()
+
+
+
+#**************CURRENT BEST MODEL************************
+
+# include a correlation matrix for all data (including LW) 
+lmeFit7 <- lme(Crime.Rate ~ dateSCFctr + postSCF +
+                 dateSCFctr*postSCF,
+               method = "ML",
+               random = list(~1 + dateSCFctr | mNeighborhood),
+               correlation = corAR1(0.66),
+               data = df)
+
+sink("models/SeeClickFix_Crime_ITS_lme_v6.txt")
+summary(lmeFit7)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model that lacks an AR1 correlation structure")
+cat("\n")
+lrtest(lmeFit3, lmeFit7)
+sink()
+#*********************************************************
+
+
 
 #########################################################################################################################
 ###########
@@ -200,3 +274,9 @@ plot(arimaForecast1)
 
 arimaForecast2 <- forecast(arimaFit2, h = 12)
 plot(arimaForecast2)
+
+
+arimaFit3 <- arima(hill$Crime.Rate, order = c(1,0,0))
+summary(arimaFit3)
+arimaFit4 <- arima(hill$Crime.Rate, order = c(4,0,0))
+summary(arimaFit4)

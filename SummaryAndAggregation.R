@@ -251,6 +251,7 @@ pdf(file = "figures/lm5_poisson_residuals_crime_v_posts.pdf")
 par(mfrow=c(2,2))
 plot(lm5)
 dev.off()
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # SCF issue categories by Neighborhood
@@ -544,6 +545,76 @@ summary(lm5)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Crime and SCF rates by neighborhood figure 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+df <- read.csv(file = "data/processed/combined/crime_scf_census_by_mneigh_ym_ITS.csv")
+df$mNeighborhood <- gsub(pattern = " ", "", df$mNeighborhood)
+df$mNeighborhood <- gsub(pattern = "/", "_", df$mNeighborhood)
+
+# reformat YearMonth to time
+
+df$YearMonth <- as.character(df$YearMonth)
+df$YearMonth <- gsub(pattern = "(\\d{4})(\\d{2})", replacement = "\\1-\\2-01", x = df$YearMonth)
+df$YearMonthTime <-as.Date(df$YearMonth, format = "%Y-%m-%d")
+
+names(df)
+
+ggplot(df, aes(x = YearMonthTime, y = Crime.Rate, label = mNeighborhood))+
+  geom_line(aes(group = mNeighborhood, color = mNeighborhood))+
+  labs(x = "Year",
+       y = "CrimeRate",
+       title = "Crime Rate in each Neighborhood by Month",
+       color = "Neighborhood")+
+  geom_text(data = df[df$YearMonthTime == "2010-01-01",], 
+            aes(label = mNeighborhood), 
+            check_overlap = T)+
+  geom_label(data = df[df$YearMonthTime == "2010-01-01",], 
+             aes(label = mNeighborhood))+
+  ggsave("crimeRate_mNeigh_month_line.pdf", path = figout, 
+         width = 12, height = 8)
+
+str(df$Num.Crimes)
+
+# box plot showing the number of crimes per neighborhood
+ggplot(df, aes(x = reorder(mNeighborhood, Num.Crimes, FUN=median), y = Num.Crimes))+
+  geom_boxplot(aes(fill=mNeighborhood))+
+  coord_flip()+
+  labs(x = "",
+       y = "Number of Crimes per Month",
+       title = "Crimes per Month in New Haven Neighborhoods\n2000-2012")+
+  theme(legend.position = "none")+
+  ggsave("numCrimes_neighborhood_boxplot.pdf", path=figout, height = 6, width = 6)
+
+# box plot showing the crime rate per neighborhood
+ggplot(df, aes(x = reorder(mNeighborhood, Crime.Rate, FUN=median), y = Crime.Rate))+
+  geom_boxplot(aes(fill=mNeighborhood))+
+  coord_flip()+
+  labs(x = "",
+       y = "Crime Rate per Month",
+       title = "Crime Rate per Month in New Haven Neighborhoods\n2000-2012")+
+  theme(legend.position = "none")+
+  ggsave("crimeRate_neighborhood_boxplot.pdf", path=figout, height = 6, width = 6)
+
+
+ggplot(df, aes(x = YearMonthTime, y = SeeClickFix.Issue.Rate, label = mNeighborhood))+
+  geom_line(aes(group = mNeighborhood, color = mNeighborhood))+
+  scale_x_continuous(limits = c(as.Date(2007-01-01, origin = "2007-01-01"), as.Date(2015-09-01, origin = "2015-09-01")))+
+  labs(x = "Year",
+       y = "CrimeRate",
+       title = "Crime Rate in each Neighborhood by Month",
+       color = "Neighborhood")+
+  geom_text(data = df[df$YearMonthTime == "2012-01-01",], 
+            aes(label = mNeighborhood), 
+            check_overlap = T)+
+  geom_label(data = df[df$YearMonthTime == "2012-01-01",], 
+             aes(label = mNeighborhood))
+  ggsave("crimeRate_mNeigh_month_line.pdf", path = figout, 
+         width = 12, height = 8)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 # Network analysis
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -591,3 +662,6 @@ table(links$to)
 net2 <- net
 l <- layout.circle(net2)
 plot(net2, layout=l)
+
+# boxplot of the median crime rates of each neighborhood to show Long Wharf as an outlier
+boxplot(by(df$Crime.Rate, df$mNeighborhood, FUN=median), main="Median Crime Rates\nin each Neighborhood", col = "beige")
