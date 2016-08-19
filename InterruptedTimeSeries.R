@@ -6,7 +6,7 @@
 # Model building attempt
 
 # load/install required packages
-list.of.packages <- c("Wats", "ggplot2","nlme", "forecast", "lmtest")
+list.of.packages <- c("Wats", "ggplot2","nlme", "forecast", "lmtest", "tseries", "changepoint")
 
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages, repos = "http://cran.rstudio.com/")
@@ -48,23 +48,37 @@ df$dateSCFctr <- df$YearMonthTime - dateSCF
 
 df$X.1 <- df$X <- NULL
 
-###
-### Clean up and write out this file to distribute
-###
-###
-write.csv(df, file = "data/processed/combined/crime_scf_census_by_mneigh_ym_ITSv2.csv", row.names = F)
-write.csv(df[df$mNeighborhood=="Hill",], file = "data/processed/combined/crime_scf_census_Hill_ym_ITSv2.csv", row.names = F)
+# correction for % white?
+df$Frac.White <- df$Total.Population..White.Alone / df$Total.Population
 
-# subset to just look at Downtown
+# correction for % graduated from high school
+df$Frac.GradHighSchool <- df$Civilian.Population.16.to.19.Years..High.school.graduate..or.enrolled..in.school. / df$Total.Population
+
+# correction for age
+df$Frac.Ov64 <- (df$Total.Population..65.to.74.Years + df$Total.Population..75.to.84.Years + df$Total.Population..85.Years.and.over)/df$Total.Population
+
+
+# model excluding Long Wharf (exceptionally high crime rate, positive slope post scf)
+lw <- df$mNeighborhood!="LongWharf"
+df.noLW <- df[lw,]
+
+# subset to just look at Downtown, Hill, etc
 downtown <- subset(df, mNeighborhood == "Downtown")
-
-# plot for downtown
-ggplot(data = downtown, mapping = aes(x = YearMonth, y = Crime.Rate)) +
-  geom_line(aes(group=1))
+hill <- subset(df, mNeighborhood == "Hill")
 
 # label downtown times as a time series
 downtown$Crime.Rate <- ts(data = downtown$Crime.Rate, )
 
+###
+### Clean up and write out this file to distribute
+###
+###
+# write.csv(df, file = "data/processed/combined/crime_scf_census_by_mneigh_ym_ITSv2.csv", row.names = F)
+# write.csv(df[df$mNeighborhood=="Hill",], file = "data/processed/combined/crime_scf_census_Hill_ym_ITSv2.csv", row.names = F)
+
+# plot for downtown
+ggplot(data = downtown, mapping = aes(x = YearMonth, y = Crime.Rate)) +
+  geom_line(aes(group=1))
 
 #########################################################################################################################
 ###########
@@ -187,9 +201,7 @@ for (n in 1:length(neigh)) {
 }
 
 
-# model excluding Long Wharf (exceptionally high crime rate, positive slope post scf)
-lw <- df$mNeighborhood!="LongWharf"
-df.noLW <- df[lw,]
+
 
 lmeFit4 <- lme(Crime.Rate ~ dateSCFctr + postSCF +
                  dateSCFctr*postSCF,
@@ -256,6 +268,106 @@ sink()
 
 
 
+lmeFit9 <- lme(Crime.Rate ~ dateSCFctr + postSCF + Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. +
+                 dateSCFctr*postSCF,
+               method = "ML",
+               random = list(~1 + dateSCFctr | mNeighborhood),
+               correlation = corAR1(0.66),
+               data = df)
+summary(lmeFit9)
+
+lmefit10 <- lme(Crime.Rate ~ dateSCFctr + postSCF + 
+                  Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                  Frac.GradHighSchool + dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corAR1(0.66),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v7.txt")
+summary(lmefit10)
+sink()
+
+lmefit11 <- lme(Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                  Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                  Frac.GradHighSchool + dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corAR1(0.66),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v7.txt")
+summary(lmefit11)
+sink()
+
+lmefit12 <- lme(Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                  Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                  Frac.GradHighSchool + dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v8.txt")
+summary(lmefit12)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model with an AR1 correlation structure")
+cat("\n")
+lrtest(lmefit11,lmefit12)
+sink()
+#*********************************************************
+
+lmefit13 <- lme(Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                  Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                  Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v9.txt")
+summary(lmefit13)
+sink()
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model with an AR1 correlation structure")
+cat("\n")
+lrtest(lmefit11,lmefit12)
+sink()
+
+# lme with just the most basic fixed effects (+autocorrelation structure)
+lmefit14 <- lme(Num.Crimes ~ dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+
+sink("models/SeeClickFix_Crime_ITS_lme_v10.txt")
+summary(lmefit14)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model with fixed effects for education, income, race and age")
+cat("\n")
+lrtest(lmefit14,lmefit13)
+sink()
+
+lmefit15 <- lme(Num.Crimes ~ dateSCFctr*postSCF*mNeighborhood,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+summary(lmefit15)
+
+lmefit16 <- lme(Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                  Frac.White + 
+                  dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
 #########################################################################################################################
 ###########
 ########### Models using ARIMA
@@ -271,12 +383,189 @@ arimaForecast1 <- forecast(arimaFit1, h = 12)
 arimaForecast1
 plot(arimaForecast1)
 
-
 arimaForecast2 <- forecast(arimaFit2, h = 12)
 plot(arimaForecast2)
 
-
+plot(hill$Crime.Rate, type='l')
 arimaFit3 <- arima(hill$Crime.Rate, order = c(1,0,0))
 summary(arimaFit3)
-arimaFit4 <- arima(hill$Crime.Rate, order = c(4,0,0))
+arimaFit4 <- arima(hill$Crime.Rate, order = c(1,1,1))
 summary(arimaFit4)
+arimaFit4 <- arima(hill$Crime.Rate, order = c(4,0,0))
+summary(arimaFit2)
+
+
+arimaForecast1 <- forecast(arimaFit1, h = 12)
+plot(arimaForecast1)
+
+arimaForecast1 <- forecast(arimaFit2, h = 12)
+plot(arimaForecast2)
+
+
+arimaForecast3 <- forecast(arimaFit3, h = 12)
+plot(arimaForecast3)
+
+arimaForecast4 <- forecast(arimaFit4, h = 12)
+plot(arimaForecast4)
+
+arima.auto1 <- auto.arima(hill$Crime.Rate, 
+                          stationary = T, 
+                          seasonal = T, 
+                          xreg = hill$postSCF)
+summary(arima.auto1)
+arimaForecast5 <- forecast(arime.auto1, xreg = hill$postSCF)
+plot(arimaForecast5, main="The Hill\nARIMA(5,1,1)")
+summary(arime.auto1)
+
+hill$Crime.Rate <- ts(hill$Crime.Rate)
+arimaFit5 <- arima(hill$Crime.Rate, order = c(2,0,0))
+
+arimaFit6 <- Arima(hill$Crime.Rate, order = c(1,0,0), xreg = hill$postSCF)
+arimaForecast6 <- forecast(arimaFit6, xreg = hill$postSCF)
+plot(arimaForecast6)
+arimaFit6
+
+arimaFit7 <- Arima(hill$Crime.Rate, order = c(5,1,1), xreg = hill$postSCF)
+arimaFit7
+
+arimaFit8 <- Arima(hill$Crime.Rate, order = c(5,1,1), xreg = hill$postSCF)
+arimaForecast8 <- forecast(arimaFit8, xreg = hill$postSCF)
+plot(arimaForecast8)
+
+tsdisplay(diff(hill$Crime.Rate))
+
+
+arimaFit9 <- Arima(hill$Crime.Rate, 
+                   order = c(1,1,0),
+                   seasonal = list(order=c(1,1,0),period=12),
+                   xreg = hill$postSCF,
+                   include.mean = F)
+summary(arimaFit9)
+
+plot(forecast(arimaFit9, xreg = hill$postSCF))
+
+adf.test(diff(hill$Crime.Rate), alternative = "stationary", k=0)
+
+acf(hill$Crime.Rate)
+pacf(hill$Crime.Rate)
+
+
+#########################################################################################################################
+###########
+########### Changepoint analysis
+###########
+
+set.seed(10)
+mean <- cpt.mean(hill$Crime.Rate, method = 'PELT')
+mean <- cpt.mean(hill$Crime.Rate, method = 'BinSeg')
+mean <- cpt.mean(hill$Crime.Rate, method = 'AMOC')
+
+
+par(mfrow=c(1,2))
+plot(mean, xaxt = "n", main = "Change Point Analysis\nThe Hill", ylab = "Crime Rate")
+axis(1, at = 132, labels = (hill$YearMonth[133]))
+plot(x=1:length(hill$SeeClickFix.Issue.Rate), y=hill$SeeClickFix.Issue.Rate, 
+     xaxt = "n", xlim = c(100,length(hill$SeeClickFix.Issue.Rate)),
+     ylab = "SeeClickFix Issue Rate",
+     main = "SeeClickFix Issue Rate over time\nThe Hill",
+     xlab = "Time")
+axis(1, at = 132, labels = (hill$YearMonth[133]))
+abline(v = 132)
+dev.off()
+
+
+cpts(mean)
+plot(x=seq(from = 1, to=163, by = 1),
+     y=mean@param.est$mean)
+plot(mean)
+length(coef(mean))
+length(mean@param.est$mean)
+
+# calculate the changepoint for each neighborhood and create dataframe with the date
+neigh <- unique(df$mNeighborhood)
+changepoints <- list()
+changepoint.nums <- list()
+for (n in 1:length(neigh)) {
+  changepoints[[n]] <- cpt.mean(df$Crime.Rate[df$mNeighborhood == neigh[n]])
+  changepoint.nums[[n]] <- cpts(changepoints[[n]])
+}
+unlist.cpn <- unlist(changepoint.nums)
+dates <- c()
+for (i in 1:length(unlist.cpn)) {
+  dates[i] <- hill$YearMonth[unlist.cpn[i]]
+}
+changes.dates <- data.frame(neigh, unlist.cpn, dates) 
+
+dir.create("figures/changepoint")
+for (e in 1:length(neigh)){
+  jpeg(filename = paste("figures/changepoint/changepoint_", neigh[e], ".jpg", sep = ""))
+  plot(changepoints[[e]], xaxt = "n", 
+       main = paste("Change Point Analysis\n",neigh[e], sep = ""),
+       ylab = "Crime Rate")
+  axis(1, at = unlist.cpn[e], labels = (hill$YearMonth[unlist.cpn[e]]))
+  dev.off()
+}
+scfstart <- as.POSIXlt("2008-01-01", format = "%Y-%m-%d")
+str(scfstart)
+str(changes.dates)
+changes.dates$dates.2 <- strptime(as.character(changes.dates$dates), format = "%Y-%m-%d")
+ggplot(changes.dates, aes(x=neigh, y=dates.2))+
+  geom_point(aes(color=neigh, size=3))+
+  geom_hline(aes(yintercept = as.numeric(scfstart)), linetype=2)+
+  coord_flip()+
+  labs(x="",
+       y="Date",
+       title="Date at Change-Point\nAMOC Fitting")+
+  theme(legend.position="none") +
+  ggsave(filename = "changepoint/changepoint_dates_perNeighborhood.pdf", path = figout, 
+         height = 6, width = 6)
+
+
+#########################################################################################################################
+###########
+########### Models using Poisson 
+###########
+
+glmp.1 <- glm(formula = Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF, 
+              family = poisson(),
+              data = df)
+summary(glmp.1)                
+
+glmp.2 <- glm(formula = Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF + mNeighborhood*postSCF, 
+              family = poisson(),
+              data = df)
+summary(glmp.2)
+glm.2f <- predict(glmp.2)
+plot.glm.2f <- data.frame(df$YearMonthTime, df$mNeighborhood, df$postSCF, df$Num.Crimes, as.numeric(glm.2f))
+
+glmp.3 <- glm(formula = Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
+                Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF*mNeighborhood, 
+              family = poisson(),
+              data = df)
+sink("models/SeeClickFix_Crime_ITS_glmPoisson_v3.txt")
+summary(glmp.3)
+sink()
+anova(glmp.3)
+plot(df)
+
+glmp.4 <- glm(formula = Num.Crimes ~ dateSCFctr + postSCF + mNeighborhood-1 + Total.Population +
+                Frac.White + Median.household.income..In.2014.Inflation.Adjusted.Dollars. + 
+                Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF*mNeighborhood, 
+              family = poisson(),
+              data = df)
+summary(glmp.4)
+neigh <- unique(df$mNeighborhood)
+dir.create(paste(figout, "glmPoissonFits",sep =  "/"))
+for (n in 1:length(neigh)) {
+  ggplot(plot.glm.2f[plot.glm.2f$df.mNeighborhood == neigh[n],], aes(x = df.YearMonthTime, y = as.numeric.glm.2f.))+
+    geom_line(data = subset(plot.glm.2f[plot.glm.2f$df.mNeighborhood == neigh[n],], df.postSCF == 0), color = "red")+
+    geom_line(data = subset(plot.glm.2f[plot.glm.2f$df.mNeighborhood == neigh[n],], df.postSCF == 1), color = "red")+
+    geom_line(data = subset(plot.glm.2f[plot.glm.2f$df.mNeighborhood == neigh[n],]), aes(x = df.YearMonthTime, y = df.Num.Crimes))+
+    labs(x="", y="Crime Rate", title=paste("Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nPoisson Model", neigh[n], sep="\n"))+
+    ggsave(filename = paste("glmpFit.CrimeRatevTime", neigh[n], "pdf", sep = "."), path = paste(figout, "glmPoissonFits",sep =  "/"), height = 6, width = 8)
+}

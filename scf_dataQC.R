@@ -7,7 +7,7 @@
 ################################################################
 
 # set working directory
-setwd("~/Dropbox/SCFBW/scf_data/")
+setwd("~/Box Sync/projects/scfbw/data/")
 
 
 df <- read.table("nh_scf_issues", sep = "|", header =T)
@@ -18,9 +18,9 @@ hist(active.users, 50, col = "beige", xlab = "Number of posts", ylab = "Number o
 
 uniq.id <- unique(df$user_id)
 table(uniq.id)
-write.csv(df, "nh_scf_issues.csv")
+write.csv(df, "processed/scf_data/nh_scf_issues.csv")
 
-comments <- read.table("nh_scf_comments", sep = "|", header =T)
+comments <- read.table("raw/scf_data/nh_scf_comments", sep = "|", header =T)
 
 df.b <- merge(df, comments, by.x = "id", by.y = "issue_id")
 str(df.b)
@@ -37,3 +37,19 @@ write.csv(df.b, "nh_scf_issues_comments.csv")
 
 scf_loc <- df[,1:3]
 write.csv(scf_loc, "scf_loc.csv")
+
+# are watched and voted on issues all anon?
+head(table(comments$comment))
+table(comments$comment_type)
+
+votes <- comments[comments$comment_type=="Issue Voted For",]
+
+table(is.na(votes$user_id))
+# FALSE  TRUE 
+# 21262 18824
+
+watchers <- comments[comments$comment_type=="Watcher Added",]
+
+table(is.na(watchers$user_id))
+# FALSE  TRUE 
+# 1639  1049 

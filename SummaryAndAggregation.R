@@ -33,7 +33,7 @@ figout <- "/Users/danielspakowicz/Box Sync/projects/scfbw/figures"
 
 
 # load and format issues file
-scf_df <- read.csv(file = "data/processed/combined//scf_issues_neighborhoods_bg.csv")
+scf_df <- read.csv(file = "data/processed/scf_data/scf_issues_neighborhoods_bg.csv")
 scf_df$created_at <- as.POSIXct(scf_df$created_at)
 scf_df$acknowledg <- as.POSIXct(scf_df$acknowledg)
 scf_df$closed_at <- as.POSIXct(scf_df$closed_at)
@@ -42,7 +42,7 @@ scf_df$year <- strftime(scf_df$created_at, format = "%Y")
 scf_df$year_month <- strftime(scf_df$created_at, format = "%Y%m")
 
 # load merged issues / comments file
-comments <- read.csv("raw_data/scf_data/nh_scf_issues_comments.csv")
+comments <- read.csv("data/processed/scf_data/nh_scf_issues_comments.csv")
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~#~~~~~~~~~~~~~~~~~~~~~~~~~~~
