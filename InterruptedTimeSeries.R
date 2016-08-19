@@ -558,7 +558,23 @@ glmp.4 <- glm(formula = Num.Crimes ~ dateSCFctr + postSCF + mNeighborhood-1 + To
                 Frac.GradHighSchool + Frac.Ov64 + dateSCFctr*postSCF*mNeighborhood, 
               family = poisson(),
               data = df)
+sink("models/SeeClickFix_Crime_ITS_glmPoisson_v4.txt")
 summary(glmp.4)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# anova comparing this model to the model with with an estimated intercept")
+cat("\n")
+lrtest(glmp.3,glmp.4)
+sink()
+
+
+names(df)
+plot(df[,c(11,79,119:121)])
+par(mfrow=c(2,2))
+plot(glmp.4)
+
 neigh <- unique(df$mNeighborhood)
 dir.create(paste(figout, "glmPoissonFits",sep =  "/"))
 for (n in 1:length(neigh)) {
