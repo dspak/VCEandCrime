@@ -1,6 +1,7 @@
 # Interrupted Time Series Analysis
 # Fri Jul 15 15:06:04 2016 ------------------------------
 # Thu Jul 21 15:55:41 2016 ------------------------------
+# Wed Aug 24 13:47:29 2016 ------------------------------
 
 
 # Model building attempt
@@ -57,6 +58,11 @@ df$Frac.GradHighSchool <- df$Civilian.Population.16.to.19.Years..High.school.gra
 # correction for age
 df$Frac.Ov64 <- (df$Total.Population..65.to.74.Years + df$Total.Population..75.to.84.Years + df$Total.Population..85.Years.and.over)/df$Total.Population
 
+
+
+
+##################################################
+## Subset to some neighborhoods
 
 # model excluding Long Wharf (exceptionally high crime rate, positive slope post scf)
 lw <- df$mNeighborhood!="LongWharf"
@@ -368,6 +374,27 @@ lmefit16 <- lme(Num.Crimes ~ dateSCFctr + postSCF + Total.Population +
                 random = list(~1 + dateSCFctr | mNeighborhood),
                 correlation = corARMA(p = 1, q = 2),
                 data = df)
+
+lmefit17 <- lme(Num.Crimes ~ dateSCFctr*postSCF*mNeighborhood,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v11.txt")
+summary(lmefit17)
+lrtest(lmefit17, glmp.5)
+sink()
+
+
+lmefit18 <- lme(Num.Crimes ~ dateSCFctr*postSCF,
+                method = "ML",
+                random = list(~1 + dateSCFctr | mNeighborhood),
+                correlation = corARMA(p = 1, q = 2),
+                data = df)
+sink("models/SeeClickFix_Crime_ITS_lme_v12.txt")
+summary(lmefit18)
+sink()
+
 #########################################################################################################################
 ###########
 ########### Models using ARIMA
@@ -564,11 +591,26 @@ cat("\n")
 cat("\n")
 cat("*********************")
 cat("\n")
-cat("# anova comparing this model to the model with with an estimated intercept")
+cat("# lrtest comparing this model to the model with with an estimated intercept")
 cat("\n")
 lrtest(glmp.3,glmp.4)
 sink()
 
+glmp.5 <- glm(formula = Num.Crimes ~ dateSCFctr*postSCF*mNeighborhood, 
+              family = poisson(),
+              data = df)
+sink("models/SeeClickFix_Crime_ITS_glmPoisson_v5.txt")
+summary(glmp.5)
+cat("\n")
+cat("\n")
+cat("*********************")
+cat("\n")
+cat("# lrtest comparing this model to the model with with an estimated intercept")
+cat("\n")
+lrtest(glmp.4,glmp.5)
+sink()
+par(mfrow=c(2,2))
+plot(glmp.5)
 
 names(df)
 plot(df[,c(11,79,119:121)])
@@ -585,3 +627,55 @@ for (n in 1:length(neigh)) {
     labs(x="", y="Crime Rate", title=paste("Interrupted Time Series analysis of SeeClickFix effect on Crime Rate\nPoisson Model", neigh[n], sep="\n"))+
     ggsave(filename = paste("glmpFit.CrimeRatevTime", neigh[n], "pdf", sep = "."), path = paste(figout, "glmPoissonFits",sep =  "/"), height = 6, width = 8)
 }
+
+
+##################################################
+## Check other scf introduction dates
+
+# col for diff dates of SCF introduction
+dateBreak <- seq.Date(from = as.Date("2001-01-01"), to = as.Date("2011-08-01"), by = "month")
+
+# indicator for post pre/post date break
+breakmat <- matrix(nrow = length(df$YearMonth), ncol = length(dateBreak))
+for (b in 1:length(dateBreak)){
+  breakmat[,b] <- df$YearMonth >= dateBreak[b]
+}
+
+# incorporate into a modeling dataframe
+
+breaktest <- data.frame(Num.Crimes=df$Num.Crimes,
+                        mNeighborhood=df$mNeighborhood,
+                        dateSCFctr=df$dateSCFctr,
+                        breakmat)
+
+# create list of cols to interate through
+breakcols <- seq(4,ncol(breaktest), by =1)
+
+# create vector for storing the AIC values
+breaktest.AIC <- c()
+
+# Poisson model interating on which col sets the breakpoint
+for (c in breakcols){
+  f <- as.formula(paste("Num.Crimes ~ dateSCFctr*mNeighborhood*", colnames(breaktest)[c], sep = ""))
+  glmp.tmp <- glm(formula = f, 
+                family = poisson(),
+                data = breaktest)
+  breaktest.AIC[c] <- AIC(glmp.tmp)
+}
+
+# eliminate first three NA values for plotting
+breaktest.AIC <- breaktest.AIC[4:length(breaktest.AIC)]
+
+# plot the result
+plotbreak <- data.frame(dateBreak, breaktest.AIC)
+ggplot(plotbreak, aes(x=dateBreak, y=breaktest.AIC))+
+  geom_point()+
+  geom_line()+
+  labs(x="Date",
+       y="AIC",
+       title="AIC values of Interrupted Time Series Poisson Linear Models\nvarying the date of Interruption")+
+  ggsave("glmp_ITS_AICvalueComparison.pdf", path = figout, height = 6, width = 6)
+
+plotbreak[which(plotbreak$breaktest.AIC==min(plotbreak$breaktest.AIC)),]
+
+min(plotbreak$breaktest.AIC)
